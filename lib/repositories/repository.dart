@@ -1,7 +1,7 @@
 import 'package:sqflite/sqflite.dart';
 import '../models/asset.dart';
 import '../models/expense.dart';
-import 'database_service.dart';
+import '../services/database_service.dart';
 
 class AssetRepository {
   Future<Database> get _db async => await DatabaseService.database;

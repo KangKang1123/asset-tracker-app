@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:fl_chart/fl_chart.dart';
 
+import 'models/asset.dart';
 import 'models/expense.dart';
 import 'repositories/repository.dart';
 
