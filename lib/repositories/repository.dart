@@ -6,24 +6,83 @@ import '../services/database_service.dart';
 class AssetRepository {
   Future<Database> get _db async => await DatabaseService.database;
 
-  // 创建资产记录
+  // 创建或更新资产记录（同月份合并）
   Future<int> createRecord(AssetRecord record) async {
     final db = await _db;
     
     return await db.transaction((txn) async {
-      // 插入主记录
-      int recordId = await txn.insert('records', record.toMap());
+      // 检查该月份是否已有记录
+      final existing = await txn.query(
+        'records',
+        where: 'month = ?',
+        whereArgs: [record.month],
+      );
       
-      // 插入明细项
-      for (var item in record.items) {
-        await txn.insert('items', {
-          ...item.toMap(),
-          'record_id': recordId,
-        });
+      int recordId;
+      
+      if (existing.isNotEmpty) {
+        // 更新现有记录
+        recordId = existing.first['id'] as int;
+        final oldItems = await txn.query(
+          'items',
+          where: 'record_id = ?',
+          whereArgs: [recordId],
+        );
+        
+        // 合并金额
+        double totalAssets = record.totalAssets;
+        double totalLiabilities = record.totalLiabilities;
+        
+        for (var item in oldItems) {
+          final amount = (item['amount'] as num).toDouble();
+          // 根据分类判断是资产还是负债
+          final category = item['category'] as String;
+          if (_isLiability(category)) {
+            totalLiabilities += amount;
+          } else {
+            totalAssets += amount;
+          }
+        }
+        
+        await txn.update(
+          'records',
+          {
+            'total_assets': totalAssets,
+            'total_liabilities': totalLiabilities,
+            'net_assets': totalAssets - totalLiabilities,
+            'timestamp': DateTime.now().toIso8601String(),
+          },
+          where: 'id = ?',
+          whereArgs: [recordId],
+        );
+        
+        // 添加新的明细项
+        for (var item in record.items) {
+          await txn.insert('items', {
+            ...item.toMap(),
+            'record_id': recordId,
+          });
+        }
+      } else {
+        // 创建新记录
+        recordId = await txn.insert('records', record.toMap());
+        
+        // 插入明细项
+        for (var item in record.items) {
+          await txn.insert('items', {
+            ...item.toMap(),
+            'record_id': recordId,
+          });
+        }
       }
       
       return recordId;
     });
+  }
+  
+  bool _isLiability(String category) {
+    const liabilityCategories = ['信用卡', '花呗', '借呗', '房贷', '车贷', '其他负债'];
+    return liabilityCategories.contains(category);
   }
 
   // 获取所有月份
