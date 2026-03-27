@@ -7,7 +7,7 @@ class AssetRepository {
   Future<Database> get _db async => await DatabaseService.database;
 
   // 创建资产记录
-  Future<int> createRecord(AssetRecord record, List<AssetItem> items) async {
+  Future<int> createRecord(AssetRecord record) async {
     final db = await _db;
     
     return await db.transaction((txn) async {
@@ -15,7 +15,7 @@ class AssetRepository {
       int recordId = await txn.insert('records', record.toMap());
       
       // 插入明细项
-      for (var item in items) {
+      for (var item in record.items) {
         await txn.insert('items', {
           ...item.toMap(),
           'record_id': recordId,

@@ -224,18 +224,311 @@ class _AssetPageState extends State<AssetPage> {
   void _showAddDialog() {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('添加资产记录'),
-        content: const Text('请在Web版添加资产记录，手机端暂只支持查看。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('知道了'),
-          ),
-        ],
+      builder: (context) => _AddAssetDialog(
+        repository: _repository,
+        onSaved: () {
+          _loadData();
+        },
       ),
     );
   }
+}
+
+// 添加资产对话框
+class _AddAssetDialog extends StatefulWidget {
+  final AssetRepository repository;
+  final VoidCallback onSaved;
+
+  const _AddAssetDialog({required this.repository, required this.onSaved});
+
+  @override
+  State<_AddAssetDialog> createState() => _AddAssetDialogState();
+}
+
+class _AddAssetDialogState extends State<_AddAssetDialog> {
+  final _formKey = GlobalKey<FormState>();
+  String _selectedMonth = DateFormat('yyyy-MM').format(DateTime.now());
+  final List<_AssetInput> _assetInputs = [];
+  final List<_AssetInput> _liabilityInputs = [];
+  bool _saving = false;
+
+  // 资产分类
+  static const assetCategories = ['现金', '银行卡', '支付宝', '微信', '基金', '股票', '房产', '车辆', '其他资产'];
+  // 负债分类
+  static const liabilityCategories = ['信用卡', '花呗', '借呗', '房贷', '车贷', '其他负债'];
+
+  @override
+  void initState() {
+    super.initState();
+    _addAssetInput(isAsset: true);
+  }
+
+  void _addAssetInput({required bool isAsset}) {
+    setState(() {
+      if (isAsset) {
+        _assetInputs.add(_AssetInput(
+          category: assetCategories.first,
+          nameController: TextEditingController(),
+          amountController: TextEditingController(),
+        ));
+      } else {
+        _liabilityInputs.add(_AssetInput(
+          category: liabilityCategories.first,
+          nameController: TextEditingController(),
+          amountController: TextEditingController(),
+        ));
+      }
+    });
+  }
+
+  void _removeAssetInput(int index, {required bool isAsset}) {
+    setState(() {
+      if (isAsset && _assetInputs.length > 1) {
+        _assetInputs[index].nameController.dispose();
+        _assetInputs[index].amountController.dispose();
+        _assetInputs.removeAt(index);
+      } else if (!isAsset && _liabilityInputs.length > 1) {
+        _liabilityInputs[index].nameController.dispose();
+        _liabilityInputs[index].amountController.dispose();
+        _liabilityInputs.removeAt(index);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    for (var input in [..._assetInputs, ..._liabilityInputs]) {
+      input.nameController.dispose();
+      input.amountController.dispose();
+    }
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() => _saving = true);
+
+    try {
+      // 计算总额
+      double totalAssets = 0;
+      double totalLiabilities = 0;
+
+      final items = <AssetItem>[];
+
+      for (var input in _assetInputs) {
+        final amount = double.parse(input.amountController.text);
+        if (amount > 0) {
+          totalAssets += amount;
+          items.add(AssetItem(
+            recordId: 0,
+            category: input.category,
+            name: input.nameController.text.isEmpty ? input.category : input.nameController.text,
+            amount: amount,
+          ));
+        }
+      }
+
+      for (var input in _liabilityInputs) {
+        final amount = double.parse(input.amountController.text);
+        if (amount > 0) {
+          totalLiabilities += amount;
+          items.add(AssetItem(
+            recordId: 0,
+            category: input.category,
+            name: input.nameController.text.isEmpty ? input.category : input.nameController.text,
+            amount: amount,
+          ));
+        }
+      }
+
+      if (items.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('请至少添加一项资产或负债')),
+        );
+        setState(() => _saving = false);
+        return;
+      }
+
+      final record = AssetRecord(
+        month: _selectedMonth,
+        timestamp: DateTime.now().toIso8601String(),
+        totalAssets: totalAssets,
+        totalLiabilities: totalLiabilities,
+        netAssets: totalAssets - totalLiabilities,
+        items: items,
+      );
+
+      await widget.repository.createRecord(record);
+
+      if (mounted) {
+        Navigator.pop(context);
+        widget.onSaved();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('保存成功')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('保存失败: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _saving = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('添加资产记录'),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 月份选择
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('记录月份'),
+                  trailing: Text(_selectedMonth),
+                  onTap: () async {
+                    final now = DateTime.now();
+                    final date = await showDatePicker(
+                      context: context,
+                      initialDate: DateTime.now(),
+                      firstDate: DateTime(2020),
+                      lastDate: DateTime(now.year + 1, 12),
+                    );
+                    if (date != null) {
+                      setState(() => _selectedMonth = DateFormat('yyyy-MM').format(date));
+                    }
+                  },
+                ),
+                const SizedBox(height: 16),
+
+                // 资产部分
+                Row(
+                  children: [
+                    const Text('💰 资产', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    const Spacer(),
+                    TextButton.icon(
+                      onPressed: () => _addAssetInput(isAsset: true),
+                      icon: const Icon(Icons.add, size: 18),
+                      label: const Text('添加'),
+                    ),
+                  ],
+                ),
+                ..._assetInputs.asMap().entries.map((e) => _buildAssetInput(e.key, e.value, isAsset: true)),
+
+                const SizedBox(height: 16),
+
+                // 负债部分
+                Row(
+                  children: [
+                    const Text('📉 负债', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    const Spacer(),
+                    TextButton.icon(
+                      onPressed: () => _addAssetInput(isAsset: false),
+                      icon: const Icon(Icons.add, size: 18),
+                      label: const Text('添加'),
+                    ),
+                  ],
+                ),
+                if (_liabilityInputs.isEmpty)
+                  TextButton(
+                    onPressed: () => _addAssetInput(isAsset: false),
+                    child: const Text('+ 添加负债项'),
+                  )
+                else
+                  ..._liabilityInputs.asMap().entries.map((e) => _buildAssetInput(e.key, e.value, isAsset: false)),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _saving ? null : () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        ElevatedButton(
+          onPressed: _saving ? null : _save,
+          child: _saving
+              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+              : const Text('保存'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAssetInput(int index, _AssetInput input, {required bool isAsset}) {
+    final categories = isAsset ? assetCategories : liabilityCategories;
+    
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+                    value: input.category,
+                    decoration: const InputDecoration(labelText: '分类', isDense: true),
+                    items: categories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
+                    onChanged: (v) => setState(() => input.category = v!),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextFormField(
+                    controller: input.amountController,
+                    decoration: const InputDecoration(labelText: '金额', isDense: true),
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    validator: (v) {
+                      if (v == null || v.isEmpty) return '必填';
+                      if (double.tryParse(v) == null) return '请输入数字';
+                      return null;
+                    },
+                  ),
+                ),
+                if ((isAsset && _assetInputs.length > 1) || (!isAsset && _liabilityInputs.length > 1))
+                  IconButton(
+                    icon: const Icon(Icons.remove_circle_outline, color: Colors.red),
+                    onPressed: () => _removeAssetInput(index, isAsset: isAsset),
+                  ),
+              ],
+            ),
+            TextFormField(
+              controller: input.nameController,
+              decoration: const InputDecoration(labelText: '备注（可选）', isDense: true),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AssetInput {
+  String category;
+  final TextEditingController nameController;
+  final TextEditingController amountController;
+
+  _AssetInput({
+    required this.category,
+    required this.nameController,
+    required this.amountController,
+  });
 }
 
 // ==================== 支出页面 ====================
