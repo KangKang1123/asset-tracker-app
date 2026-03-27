@@ -973,6 +973,8 @@ class _TrendPageState extends State<TrendPage> {
           ),
         ),
         const SizedBox(height: 16),
+        Text('历史记录', style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 8),
         Card(
           child: ListView.separated(
             shrinkWrap: true,
@@ -982,14 +984,147 @@ class _TrendPageState extends State<TrendPage> {
             itemBuilder: (context, index) {
               final record = _records[index];
               return ListTile(
-                title: Text(record.month),
-                subtitle: Text('净资产: ¥${record.netAssets.toStringAsFixed(0)}'),
-                trailing: Text('总资产: ¥${record.totalAssets.toStringAsFixed(0)}'),
+                leading: CircleAvatar(
+                  backgroundColor: record.netAssets >= 0 ? Colors.green.shade100 : Colors.red.shade100,
+                  child: Icon(
+                    record.netAssets >= 0 ? Icons.trending_up : Icons.trending_down,
+                    color: record.netAssets >= 0 ? Colors.green : Colors.red,
+                  ),
+                ),
+                title: Text(record.month, style: const TextStyle(fontWeight: FontWeight.bold)),
+                subtitle: Text('${record.items.length} 项资产'),
+                trailing: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      '净资产 ¥${record.netAssets.toStringAsFixed(0)}',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: record.netAssets >= 0 ? Colors.green : Colors.red,
+                      ),
+                    ),
+                    Text(
+                      '资产 ¥${record.totalAssets.toStringAsFixed(0)} / 负债 ¥${record.totalLiabilities.toStringAsFixed(0)}',
+                      style: const TextStyle(fontSize: 10, color: Colors.grey),
+                    ),
+                  ],
+                ),
+                onTap: () => _showRecordDetail(record),
               );
             },
           ),
         ),
       ],
     );
+  }
+
+  void _showRecordDetail(AssetRecord record) {
+    // 按分类分组
+    final assetItems = record.items.where((i) => !_isLiability(i.category)).toList();
+    final liabilityItems = record.items.where((i) => _isLiability(i.category)).toList();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        maxChildSize: 0.95,
+        minChildSize: 0.5,
+        expand: false,
+        builder: (context, scrollController) => Container(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('${record.month} 资产明细', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+              const Divider(),
+              // 汇总
+              Row(
+                children: [
+                  Expanded(child: _buildDetailStat('总资产', record.totalAssets, Colors.green)),
+                  Expanded(child: _buildDetailStat('总负债', record.totalLiabilities, Colors.red)),
+                  Expanded(child: _buildDetailStat('净资产', record.netAssets, Colors.blue)),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: ListView(
+                  controller: scrollController,
+                  children: [
+                    if (assetItems.isNotEmpty) ...[
+                      const Text('💰 资产', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      const SizedBox(height: 8),
+                      ...assetItems.map((item) => ListTile(
+                        dense: true,
+                        leading: CircleAvatar(
+                          radius: 16,
+                          backgroundColor: Colors.green.shade50,
+                          child: Text(_getCategoryEmoji(item.category), style: const TextStyle(fontSize: 14)),
+                        ),
+                        title: Text(item.name),
+                        trailing: Text('¥${item.amount.toStringAsFixed(0)}', style: const TextStyle(color: Colors.green)),
+                      )),
+                      const SizedBox(height: 16),
+                    ],
+                    if (liabilityItems.isNotEmpty) ...[
+                      const Text('📉 负债', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      const SizedBox(height: 8),
+                      ...liabilityItems.map((item) => ListTile(
+                        dense: true,
+                        leading: CircleAvatar(
+                          radius: 16,
+                          backgroundColor: Colors.red.shade50,
+                          child: Text(_getCategoryEmoji(item.category), style: const TextStyle(fontSize: 14)),
+                        ),
+                        title: Text(item.name),
+                        trailing: Text('¥${item.amount.toStringAsFixed(0)}', style: const TextStyle(color: Colors.red)),
+                      )),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDetailStat(String label, double value, Color color) {
+    return Column(
+      children: [
+        Text(label, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+        const SizedBox(height: 4),
+        Text(
+          '¥${value.toStringAsFixed(0)}',
+          style: TextStyle(fontWeight: FontWeight.bold, color: color, fontSize: 14),
+        ),
+      ],
+    );
+  }
+
+  bool _isLiability(String category) {
+    const liabilityCategories = ['信用卡', '花呗', '借呗', '房贷', '车贷', '其他负债'];
+    return liabilityCategories.contains(category);
+  }
+
+  String _getCategoryEmoji(String category) {
+    const emojiMap = {
+      '现金': '💵', '银行卡': '🏦', '支付宝': '📱', '微信': '💬',
+      '基金': '📈', '股票': '📊', '房产': '🏠', '车辆': '🚗',
+      '其他资产': '💰', '信用卡': '💳', '花呗': '🌸', '借呗': '💸',
+      '房贷': '🏘️', '车贷': '🚙', '其他负债': '📉',
+    };
+    return emojiMap[category] ?? '💰';
   }
 }
